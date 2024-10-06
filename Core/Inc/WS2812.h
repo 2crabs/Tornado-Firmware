@@ -17,8 +17,8 @@ typedef struct {
 } WS2812;
 
 void WS2812_Init(WS2812 *dev, TIM_HandleTypeDef *timer, uint32_t channel);
-void WS2812_Reset_Buf(uint8_t *buf);
-void WS2812_Write_Buf(uint8_t *buf, uint8_t r, uint8_t g, uint8_t b, uint8_t led);
+void WS2812_ResetBuf(uint8_t *buf);
+void WS2812_WriteBuf(uint8_t *buf, uint8_t r, uint8_t g, uint8_t b, uint8_t led);
 HAL_StatusTypeDef WS2812_Send(WS2812 *dev, uint8_t *buf);
 HAL_StatusTypeDef WS2812_StopDMA(WS2812 *dev);
 

@@ -5,13 +5,13 @@ void WS2812_Init(WS2812 *dev, TIM_HandleTypeDef *timer, uint32_t channel){
 	dev->tim_channel = channel;
 }
 
-void WS2812_Reset_Buf(uint8_t *buf){
+void WS2812_ResetBuf(uint8_t *buf){
 	for(uint32_t i = 0; i<WS2812_BUF_LEN; i++){
 		buf[i] = 0;
 	}
 }
 
-void WS2812_Write_Buf(uint8_t *buf, uint8_t r, uint8_t g, uint8_t b, uint8_t led){
+void WS2812_WriteBuf(uint8_t *buf, uint8_t r, uint8_t g, uint8_t b, uint8_t led){
 	uint8_t bitIndex = 0;
 	//G 0-7
 	for(uint32_t i = (led*24); i<((led*24)+8); i++){
