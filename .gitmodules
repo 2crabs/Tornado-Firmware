@@ -1,0 +1,3 @@
+[submodule "Drivers/lsm6dsv"]
+	path = Drivers/lsm6dsv
+	url = https://github.com/STMicroelectronics/lsm6dsv-pid
