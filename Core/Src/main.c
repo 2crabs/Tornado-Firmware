@@ -19,7 +19,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-#include "lsm6dsv_reg.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -33,7 +32,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define IMU_ADDR (0b1101010) << 1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,6 +51,10 @@ DMA_HandleTypeDef hdma_tim1_ch1;
 osThreadId defaultTaskHandle;
 uint32_t defaultTaskBuffer[ 128 ];
 osStaticThreadDef_t defaultTaskControlBlock;
+osMutexId i2cMutexHandle;
+osStaticMutexDef_t i2cMutexControlBlock;
+osSemaphoreId i2cSyncSemaphoreHandle;
+osStaticSemaphoreDef_t i2cSyncSemaphoreControlBlock;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -66,12 +69,36 @@ static void MX_TIM1_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
-
+int32_t platform_write(void *handle, uint8_t Reg, const uint8_t *Bufp, uint16_t len);
+int32_t platform_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len);
+void platform_delay(uint32_t ms);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef *hi2c){
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
+  xSemaphoreGiveFromISR(i2cSyncSemaphoreHandle, &xHigherPriorityTaskWoken);
+
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c){
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+  xSemaphoreGiveFromISR(i2cSyncSemaphoreHandle, &xHigherPriorityTaskWoken);
+
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+  xSemaphoreGiveFromISR(i2cSyncSemaphoreHandle, &xHigherPriorityTaskWoken);
+
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
 /* USER CODE END 0 */
 
 /**
@@ -110,9 +137,19 @@ int main(void)
 
   /* USER CODE END 2 */
 
+  /* Create the mutex(es) */
+  /* definition and creation of i2cMutex */
+  osMutexStaticDef(i2cMutex, &i2cMutexControlBlock);
+  i2cMutexHandle = osMutexCreate(osMutex(i2cMutex));
+
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
+
+  /* Create the semaphores(s) */
+  /* definition and creation of i2cSyncSemaphore */
+  osSemaphoreStaticDef(i2cSyncSemaphore, &i2cSyncSemaphoreControlBlock);
+  i2cSyncSemaphoreHandle = osSemaphoreCreate(osSemaphore(i2cSyncSemaphore), 1);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -442,7 +479,46 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+int32_t platform_write(void *handle, uint8_t Reg, const uint8_t *Bufp, uint16_t len){
+  int32_t status = HAL_OK;
 
+  xSemaphoreTake(i2cMutexHandle, portMAX_DELAY);
+
+  HAL_I2C_Mem_Write_IT(&hi2c1, IMU_ADDR, Reg, I2C_MEMADD_SIZE_8BIT, (uint8_t*) Bufp, len);
+
+  //wait for i2c callback
+  if (xSemaphoreTake(i2cSyncSemaphoreHandle, 10) == pdFALSE){
+    status = HAL_ERROR;
+  }
+
+  if(HAL_I2C_GetError(&hi2c1) != HAL_I2C_ERROR_NONE) {
+    status = HAL_ERROR;
+  }
+  xSemaphoreGive(i2cMutexHandle);
+  return status;
+}
+
+int32_t platform_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len){
+  int32_t status = HAL_OK;
+
+  xSemaphoreTake(i2cMutexHandle, portMAX_DELAY);
+
+  HAL_I2C_Mem_Read_IT(&hi2c1, IMU_ADDR, Reg, I2C_MEMADD_SIZE_8BIT, Bufp, len);
+
+  if (xSemaphoreTake(i2cSyncSemaphoreHandle, 10) == pdFALSE){
+    status = HAL_ERROR;
+  }
+
+  if(HAL_I2C_GetError(&hi2c1) != HAL_I2C_ERROR_NONE) {
+    status = HAL_ERROR;
+  }
+  xSemaphoreGive(i2cMutexHandle);
+  return status;
+}
+
+void platform_delay(uint32_t ms){
+  vTaskDelay(ms);
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
