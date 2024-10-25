@@ -33,6 +33,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define IMU_ADDR (0b1101010) << 1
+
+#define I2C_MAX_DELAY 10
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -69,8 +71,10 @@ static void MX_TIM1_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
-int32_t platform_write(void *handle, uint8_t Reg, const uint8_t *Bufp, uint16_t len);
-int32_t platform_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len);
+HAL_StatusTypeDef i2cBlockingRead(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len);
+HAL_StatusTypeDef i2cBlockingWrite(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len);
+int32_t imu_write(void *handle, uint8_t Reg, const uint8_t *Bufp, uint16_t len);
+int32_t imu_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len);
 void platform_delay(uint32_t ms);
 /* USER CODE END PFP */
 
@@ -479,41 +483,61 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-int32_t platform_write(void *handle, uint8_t Reg, const uint8_t *Bufp, uint16_t len){
-  int32_t status = HAL_OK;
+HAL_StatusTypeDef i2cBlockingRead(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len){
+  int32_t status;
 
-  xSemaphoreTake(i2cMutexHandle, portMAX_DELAY);
-
-  HAL_I2C_Mem_Write_IT(&hi2c1, IMU_ADDR, Reg, I2C_MEMADD_SIZE_8BIT, (uint8_t*) Bufp, len);
-
-  //wait for i2c callback
-  if (xSemaphoreTake(i2cSyncSemaphoreHandle, 10) == pdFALSE){
+  //take mutex for using i2c
+  if (xSemaphoreTake(i2cMutexHandle, I2C_MAX_DELAY) == pdFALSE){
     status = HAL_ERROR;
   }
 
+  //start operation
+  status = HAL_I2C_Mem_Read_IT(&hi2c1, addr, reg, I2C_MEMADD_SIZE_8BIT, buf, len);
+
+  //wait for interrupt
+  if (xSemaphoreTake(i2cSyncSemaphoreHandle, I2C_MAX_DELAY) == pdFALSE){
+    status = HAL_ERROR;
+  }
+
+  //check for error
   if(HAL_I2C_GetError(&hi2c1) != HAL_I2C_ERROR_NONE) {
     status = HAL_ERROR;
   }
+
+  //give back mutex
   xSemaphoreGive(i2cMutexHandle);
+
   return status;
 }
 
-int32_t platform_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len){
-  int32_t status = HAL_OK;
+HAL_StatusTypeDef i2cBlockingWrite(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len){
+  int32_t status;
 
-  xSemaphoreTake(i2cMutexHandle, portMAX_DELAY);
+  if (xSemaphoreTake(i2cMutexHandle, I2C_MAX_DELAY) == pdFALSE){
+    status = HAL_ERROR;
+  }
 
-  HAL_I2C_Mem_Read_IT(&hi2c1, IMU_ADDR, Reg, I2C_MEMADD_SIZE_8BIT, Bufp, len);
+  status = HAL_I2C_Mem_Write_IT(&hi2c1, addr, reg, I2C_MEMADD_SIZE_8BIT, buf, len);
 
-  if (xSemaphoreTake(i2cSyncSemaphoreHandle, 10) == pdFALSE){
+  if (xSemaphoreTake(i2cSyncSemaphoreHandle, I2C_MAX_DELAY) == pdFALSE){
     status = HAL_ERROR;
   }
 
   if(HAL_I2C_GetError(&hi2c1) != HAL_I2C_ERROR_NONE) {
     status = HAL_ERROR;
   }
+
   xSemaphoreGive(i2cMutexHandle);
+
   return status;
+}
+
+int32_t imu_write(void *handle, uint8_t Reg, const uint8_t *Bufp, uint16_t len){
+  return i2cBlockingWrite(&hi2c1, IMU_ADDR, Reg, (uint8_t*)Bufp, len);
+}
+
+int32_t imu_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len){
+  return i2cBlockingRead(&hi2c1, IMU_ADDR, Reg, Bufp, len);
 }
 
 void platform_delay(uint32_t ms){
