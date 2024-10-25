@@ -103,6 +103,24 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+  if(GPIO_Pin = IMU_INT_Pin){
+    //handle IMU interrupt
+  }
+
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+HAL_FDCAN_RxFifo0Callback(){
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+  //notify receive task
+
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
 /* USER CODE END 0 */
 
 /**
@@ -477,6 +495,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(IMU_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
