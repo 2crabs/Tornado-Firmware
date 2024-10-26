@@ -7,14 +7,24 @@
 
 #define WS2812_HI_VAL 28
 #define WS2812_LO_VAL 10
-#define WS2812_RST_PULSES 255
 
-#define WS2812_BUF_LEN ((WS2812_NUM_LEDS*24)+WS2812_RST_PULSES)
+#define WS2812_BUF_LEN ((WS2812_NUM_LEDS*24)+1)
+
+#define WS2812_POS_1 0
+#define WS2812_POS_2 1
+#define WS2812_POS_ALL 2
 
 typedef struct {
 	TIM_HandleTypeDef *tim;
 	uint32_t tim_channel;
 } WS2812;
+
+typedef struct {
+  uint8_t pos;
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+} WS2812_LED;
 
 void WS2812_Init(WS2812 *dev, TIM_HandleTypeDef *timer, uint32_t channel);
 void WS2812_ResetBuf(uint8_t *buf);

@@ -22,7 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "WS2812.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,6 +35,8 @@
 #define IMU_ADDR (0b1101010) << 1
 
 #define I2C_MAX_DELAY 10
+
+#define RGB_CHANNEL TIM_CHANNEL_1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -53,6 +55,12 @@ DMA_HandleTypeDef hdma_tim1_ch1;
 osThreadId defaultTaskHandle;
 uint32_t defaultTaskBuffer[ 128 ];
 osStaticThreadDef_t defaultTaskControlBlock;
+osThreadId updateRGBTaskHandle;
+uint32_t updateRGBTaskBuffer[ 128 ];
+osStaticThreadDef_t updateRGBTaskControlBlock;
+osMessageQId rgbQueueHandle;
+uint8_t rgbQueueBuffer[ 2 * sizeof( WS2812_LED ) ];
+osStaticMessageQDef_t rgbQueueControlBlock;
 osMutexId i2cMutexHandle;
 osStaticMutexDef_t i2cMutexControlBlock;
 osSemaphoreId i2cSyncSemaphoreHandle;
@@ -69,6 +77,7 @@ static void MX_FDCAN1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
 void StartDefaultTask(void const * argument);
+void StartUpdateRGBTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 HAL_StatusTypeDef i2cBlockingRead(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len);
@@ -80,6 +89,10 @@ void platform_delay(uint32_t ms);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim){
+  HAL_TIM_PWM_Stop_DMA(&htim1, RGB_CHANNEL);
+}
+
 void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef *hi2c){
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
@@ -107,14 +120,14 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-  if(GPIO_Pin = IMU_INT_Pin){
+  if(GPIO_Pin == IMU_INT_Pin){
     //handle IMU interrupt
   }
 
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-HAL_FDCAN_RxFifo0Callback(){
+void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs){
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
   //notify receive task
@@ -181,6 +194,11 @@ int main(void)
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
+  /* Create the queue(s) */
+  /* definition and creation of rgbQueue */
+  osMessageQStaticDef(rgbQueue, 2, WS2812_LED, rgbQueueBuffer, &rgbQueueControlBlock);
+  rgbQueueHandle = osMessageCreate(osMessageQ(rgbQueue), NULL);
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -189,6 +207,10 @@ int main(void)
   /* definition and creation of defaultTask */
   osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128, defaultTaskBuffer, &defaultTaskControlBlock);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+
+  /* definition and creation of updateRGBTask */
+  osThreadStaticDef(updateRGBTask, StartUpdateRGBTask, osPriorityLow, 0, 128, updateRGBTaskBuffer, &updateRGBTaskControlBlock);
+  updateRGBTaskHandle = osThreadCreate(osThread(updateRGBTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -583,6 +605,39 @@ void StartDefaultTask(void const * argument)
     osDelay(1);
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartUpdateRGBTask */
+/**
+* @brief Function implementing the updateRGBTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUpdateRGBTask */
+void StartUpdateRGBTask(void const * argument)
+{
+  /* USER CODE BEGIN StartUpdateRGBTask */
+  /* Infinite loop */
+  static uint8_t buffer[WS2812_BUF_LEN];
+  static WS2812 rgbs;
+  static WS2812_LED ReceivedLED;
+
+  WS2812_Init(&rgbs, &htim1, RGB_CHANNEL);
+  WS2812_ResetBuf(buffer);
+
+  for(;;)
+  {
+    xQueueReceive(rgbQueueHandle, &ReceivedLED, portMAX_DELAY);
+    if (ReceivedLED.pos == WS2812_POS_ALL){
+      WS2812_WriteBuf(buffer, ReceivedLED.r, ReceivedLED.g, ReceivedLED.b, WS2812_POS_1);
+      WS2812_WriteBuf(buffer, ReceivedLED.r, ReceivedLED.g, ReceivedLED.b, WS2812_POS_2);
+    } else {
+      WS2812_WriteBuf(buffer, ReceivedLED.r, ReceivedLED.g, ReceivedLED.b, ReceivedLED.pos);
+    }
+    WS2812_Send(&rgbs, buffer);
+    vTaskDelay(2);
+  }
+  /* USER CODE END StartUpdateRGBTask */
 }
 
 /**
