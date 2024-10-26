@@ -59,7 +59,7 @@ osThreadId updateRGBTaskHandle;
 uint32_t updateRGBTaskBuffer[ 128 ];
 osStaticThreadDef_t updateRGBTaskControlBlock;
 osMessageQId rgbQueueHandle;
-uint8_t rgbQueueBuffer[ 2 * sizeof( WS2812_LED ) ];
+uint8_t rgbQueueBuffer[ 4 * sizeof( RGBState ) ];
 osStaticMessageQDef_t rgbQueueControlBlock;
 osMutexId i2cMutexHandle;
 osStaticMutexDef_t i2cMutexControlBlock;
@@ -196,7 +196,7 @@ int main(void)
 
   /* Create the queue(s) */
   /* definition and creation of rgbQueue */
-  osMessageQStaticDef(rgbQueue, 2, WS2812_LED, rgbQueueBuffer, &rgbQueueControlBlock);
+  osMessageQStaticDef(rgbQueue, 4, RGBState, rgbQueueBuffer, &rgbQueueControlBlock);
   rgbQueueHandle = osMessageCreate(osMessageQ(rgbQueue), NULL);
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -615,22 +615,44 @@ void StartUpdateRGBTask(void const * argument)
   /* USER CODE BEGIN StartUpdateRGBTask */
   /* Infinite loop */
   static uint8_t buffer[WS2812_BUF_LEN];
-  static WS2812 rgbs;
-  static WS2812_LED ReceivedLED;
+  static WS2812 rgbHandle;
+  static RGBState ReceivedState;
+  static RGBState colors[5];
+  uint8_t mode = 1;
 
-  WS2812_Init(&rgbs, &htim1, RGB_CHANNEL);
+  WS2812_Init(&rgbHandle, &htim1, RGB_CHANNEL);
   WS2812_ResetBuf(buffer);
 
   for(;;)
   {
-    xQueueReceive(rgbQueueHandle, &ReceivedLED, portMAX_DELAY);
-    if (ReceivedLED.pos == WS2812_POS_ALL){
-      WS2812_WriteBuf(buffer, ReceivedLED.r, ReceivedLED.g, ReceivedLED.b, WS2812_POS_1);
-      WS2812_WriteBuf(buffer, ReceivedLED.r, ReceivedLED.g, ReceivedLED.b, WS2812_POS_2);
+    xQueueReceive(rgbQueueHandle, &ReceivedState, portMAX_DELAY);
+
+    //sets the bits in mode (the type will always be a power of 2)
+    if (ReceivedState.enabled == 1) {
+      mode = ReceivedState.type | mode;
     } else {
-      WS2812_WriteBuf(buffer, ReceivedLED.r, ReceivedLED.g, ReceivedLED.b, ReceivedLED.pos);
+      mode = mode & (~ReceivedState.type);
     }
-    WS2812_Send(&rgbs, buffer);
+
+    //finds to which power of 2 it is and sets its color in the array
+    uint8_t index = 0;
+    while (!((ReceivedState.type >> index)& 1)){
+      index++;
+    }
+    colors[index] = ReceivedState;
+
+    //finds the highest "priority type"
+    uint8_t highest = 0;
+    for (uint8_t i = 0; i < 8; i++) {
+      if ((mode >> i) & 1) {
+        highest = i;
+      }
+    }
+
+    WS2812_WriteBuf(buffer, colors[highest].r, colors[highest].g, colors[highest].b, 0);
+    WS2812_WriteBuf(buffer, colors[highest].r, colors[highest].g, colors[highest].b, 1);
+
+    WS2812_Send(&rgbHandle, buffer);
     vTaskDelay(2);
   }
   /* USER CODE END StartUpdateRGBTask */

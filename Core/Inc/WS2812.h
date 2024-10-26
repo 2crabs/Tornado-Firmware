@@ -10,21 +10,25 @@
 
 #define WS2812_BUF_LEN ((WS2812_NUM_LEDS*24)+1)
 
-#define WS2812_POS_1 0
-#define WS2812_POS_2 1
-#define WS2812_POS_ALL 2
+#define RGB_TYPE_SETTING_ID 0b10000
+#define RGB_TYPE_ERR_TERMINATION 0b1000
+#define RGB_TYPE_ERR_PERIODIC 0b100
+#define RGB_TYPE_CUSTOM 0b10
+#define RGB_TYPE_ID 0b1
 
 typedef struct {
 	TIM_HandleTypeDef *tim;
 	uint32_t tim_channel;
 } WS2812;
 
+//only set data to color if current type
 typedef struct {
-  uint8_t pos;
   uint8_t r;
   uint8_t g;
   uint8_t b;
-} WS2812_LED;
+  uint8_t type;
+  uint8_t enabled;
+} RGBState;
 
 void WS2812_Init(WS2812 *dev, TIM_HandleTypeDef *timer, uint32_t channel);
 void WS2812_ResetBuf(uint8_t *buf);
