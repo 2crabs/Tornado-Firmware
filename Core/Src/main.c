@@ -37,6 +37,11 @@
 #define I2C_MAX_DELAY 10
 
 #define RGB_CHANNEL TIM_CHANNEL_1
+
+#define MODE_SETTING_ID 1
+#define MODE_NOT_SETTING_ID 0
+#define BUTTON_PRESS_LONG 300
+#define BUTTON_PRESS_SHORT 4
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -58,6 +63,9 @@ osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId updateRGBTaskHandle;
 uint32_t updateRGBTaskBuffer[ 128 ];
 osStaticThreadDef_t updateRGBTaskControlBlock;
+osThreadId buttonTaskHandle;
+uint32_t buttonTaskBuffer[ 128 ];
+osStaticThreadDef_t buttonTaskControlBlock;
 osMessageQId rgbQueueHandle;
 uint8_t rgbQueueBuffer[ 4 * sizeof( RGBState ) ];
 osStaticMessageQDef_t rgbQueueControlBlock;
@@ -78,6 +86,7 @@ static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
 void StartDefaultTask(void const * argument);
 void StartUpdateRGBTask(void const * argument);
+void StartButtonTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 HAL_StatusTypeDef i2cBlockingRead(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len);
@@ -85,6 +94,8 @@ HAL_StatusTypeDef i2cBlockingWrite(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_
 int32_t imu_write(void *handle, uint8_t Reg, const uint8_t *Bufp, uint16_t len);
 int32_t imu_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len);
 void platform_delay(uint32_t ms);
+void idToRGB(RGBState* state, uint8_t id);
+void incrementID(uint8_t* id);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -211,6 +222,10 @@ int main(void)
   /* definition and creation of updateRGBTask */
   osThreadStaticDef(updateRGBTask, StartUpdateRGBTask, osPriorityLow, 0, 128, updateRGBTaskBuffer, &updateRGBTaskControlBlock);
   updateRGBTaskHandle = osThreadCreate(osThread(updateRGBTask), NULL);
+
+  /* definition and creation of buttonTask */
+  osThreadStaticDef(buttonTask, StartButtonTask, osPriorityNormal, 0, 128, buttonTaskBuffer, &buttonTaskControlBlock);
+  buttonTaskHandle = osThreadCreate(osThread(buttonTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -583,6 +598,25 @@ int32_t imu_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len){
 void platform_delay(uint32_t ms){
   vTaskDelay(ms);
 }
+
+void idToRGB(RGBState* state, uint8_t id){
+  if (id == 0){
+    RGBSetStateColor(state, 30, 30, 0);
+  }
+  if (id == 1){
+    RGBSetStateColor(state, 0, 30, 0);
+  }
+  if (id == 2){
+    RGBSetStateColor(state, 30, 15, 15);
+  }
+}
+void incrementID(uint8_t* id){
+  if ((*id) >= 2){
+    (*id) = 0;
+  } else {
+    (*id)++;
+  }
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -619,9 +653,15 @@ void StartUpdateRGBTask(void const * argument)
   static RGBState ReceivedState;
   static RGBState colors[5];
   uint8_t mode = 1;
+  colors[0].r = 30;
+  colors[0].g = 0;
+  colors[0].b = 0;
 
   WS2812_Init(&rgbHandle, &htim1, RGB_CHANNEL);
   WS2812_ResetBuf(buffer);
+  WS2812_WriteBuf(buffer, colors[0].r, colors[0].g, colors[0].b, 0);
+  WS2812_WriteBuf(buffer, colors[0].r, colors[0].g, colors[0].b, 1);
+  WS2812_Send(&rgbHandle, buffer);
 
   for(;;)
   {
@@ -656,6 +696,121 @@ void StartUpdateRGBTask(void const * argument)
     vTaskDelay(2);
   }
   /* USER CODE END StartUpdateRGBTask */
+}
+
+/* USER CODE BEGIN Header_StartButtonTask */
+/**
+* @brief Function implementing the buttonTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartButtonTask */
+void StartButtonTask(void const * argument)
+{
+  /* USER CODE BEGIN StartButtonTask */
+  /* Infinite loop */
+  uint8_t mode = MODE_NOT_SETTING_ID;
+  uint32_t blinkCounter = 0;
+  uint8_t blinkState = 0;
+  uint16_t buttonPressTime = 0;
+  uint8_t lastState = GPIO_PIN_SET;
+  uint8_t currentState = GPIO_PIN_SET;
+  uint8_t testID = 0;
+  RGBState rgb;
+
+  rgb.type = RGB_TYPE_SETTING_ID;
+  rgb.enabled = 0;
+
+  for(;;)
+  {
+    currentState = HAL_GPIO_ReadPin(ID_SW_GPIO_Port, ID_SW_Pin);
+
+    //detects end of button press
+    if((lastState == GPIO_PIN_RESET) && (lastState != currentState)){
+
+      if((mode == MODE_NOT_SETTING_ID) && (buttonPressTime > BUTTON_PRESS_LONG)){
+
+        /* Change into id setting mode */
+        mode = MODE_SETTING_ID;
+        idToRGB(&rgb, testID);
+        xQueueSend(rgbQueueHandle, &rgb, 0);
+        /* Change into id setting mode */
+
+      } else if((mode == MODE_SETTING_ID) && (buttonPressTime > BUTTON_PRESS_LONG)){
+
+        /* Change into normal mode */
+        mode = MODE_NOT_SETTING_ID;
+        rgb.enabled = 0;
+        xQueueSend(rgbQueueHandle, &rgb, 0);
+        /* Change into normal mode */
+
+      } else if ((mode == MODE_SETTING_ID) && (buttonPressTime > BUTTON_PRESS_SHORT)){
+
+        /* Change ID */
+        incrementID(&testID);
+        rgb.type = RGB_TYPE_ID;
+        idToRGB(&rgb, testID);
+        xQueueSend(rgbQueueHandle, &rgb, 0);
+        rgb.type = RGB_TYPE_SETTING_ID;
+        idToRGB(&rgb, testID);
+        /* Change ID */
+
+      } else if ((mode == MODE_NOT_SETTING_ID) && (buttonPressTime <= BUTTON_PRESS_LONG)){
+
+        /* Accidental Press */
+        rgb.enabled = 0;
+        xQueueSend(rgbQueueHandle, &rgb, 0);
+        /* Accidental Press */
+
+      }
+    }
+
+    //Brighten to white
+    if((currentState == GPIO_PIN_RESET) && (mode == MODE_NOT_SETTING_ID)){
+      rgb.enabled = 1;
+      if (buttonPressTime > BUTTON_PRESS_LONG){
+        idToRGB(&rgb, testID);
+      } else {
+        RGBSetStateColor(&rgb, buttonPressTime/10, buttonPressTime/10, buttonPressTime/10);
+      }
+      xQueueSend(rgbQueueHandle, &rgb, 0);
+    }
+
+
+    //Dim to nothing
+    if((currentState == GPIO_PIN_RESET) && (mode == MODE_SETTING_ID)){
+      if (buttonPressTime > BUTTON_PRESS_LONG){
+        rgb.enabled = 0;
+      } else if (buttonPressTime > 50){
+        RGBSetStateColor(&rgb, (BUTTON_PRESS_LONG - buttonPressTime)/10, (BUTTON_PRESS_LONG - buttonPressTime)/10, (BUTTON_PRESS_LONG - buttonPressTime)/10);
+      }
+      xQueueSend(rgbQueueHandle, &rgb, 0);
+    }
+
+    //blinking id color
+    if((mode == MODE_SETTING_ID) && (currentState == GPIO_PIN_SET)){
+      if (blinkCounter > 35){
+        blinkState = !blinkState;
+        blinkCounter = 0;
+        if (blinkState){
+          idToRGB(&rgb, testID);
+        } else {
+          RGBSetStateColor(&rgb, 0, 0, 0);
+        }
+      }
+      xQueueSend(rgbQueueHandle, &rgb, 0);
+    }
+
+    if(currentState == GPIO_PIN_RESET){
+      buttonPressTime++;
+    } else{
+      buttonPressTime = 0;
+    }
+    lastState = currentState;
+    blinkCounter++;
+    vTaskDelay(10);
+  }
+  /* USER CODE END StartButtonTask */
 }
 
 /**

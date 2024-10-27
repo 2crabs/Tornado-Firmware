@@ -53,3 +53,9 @@ HAL_StatusTypeDef WS2812_Send(WS2812 *dev, uint8_t *buf){
 HAL_StatusTypeDef WS2812_StopDMA(WS2812 *dev){
 	return HAL_TIM_PWM_Stop_DMA(dev->tim, dev->tim_channel);
 }
+
+void RGBSetStateColor(RGBState* state, uint8_t r, uint8_t g, uint8_t b){
+  state->r = r;
+  state->g = g;
+  state->b = b;
+}

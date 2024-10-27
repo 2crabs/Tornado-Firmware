@@ -36,4 +36,6 @@ void WS2812_WriteBuf(uint8_t *buf, uint8_t r, uint8_t g, uint8_t b, uint8_t led)
 HAL_StatusTypeDef WS2812_Send(WS2812 *dev, uint8_t *buf);
 HAL_StatusTypeDef WS2812_StopDMA(WS2812 *dev);
 
+void RGBSetStateColor(RGBState* state, uint8_t r, uint8_t g, uint8_t b);
+
 #endif /* INC_WS2812_H_ */
