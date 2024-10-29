@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "WS2812.h"
+#include "EEPROM.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -74,7 +75,7 @@ osStaticMutexDef_t i2cMutexControlBlock;
 osSemaphoreId i2cSyncSemaphoreHandle;
 osStaticSemaphoreDef_t i2cSyncSemaphoreControlBlock;
 /* USER CODE BEGIN PV */
-
+uint8_t config[40];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -96,6 +97,7 @@ int32_t imu_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t len);
 void platform_delay(uint32_t ms);
 void idToRGB(RGBState* state, uint8_t id);
 void incrementID(uint8_t* id);
+HAL_StatusTypeDef loadEEPROM(uint8_t* data);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -180,7 +182,7 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-
+  loadEEPROM(config);
   /* USER CODE END 2 */
 
   /* Create the mutex(es) */
@@ -616,6 +618,23 @@ void incrementID(uint8_t* id){
   } else {
     (*id)++;
   }
+}
+
+HAL_StatusTypeDef loadEEPROM(uint8_t* data){
+
+  for (uint8_t offset = 0; offset < 5; offset++) {
+    uint8_t errCount = 0;
+
+    while ((HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDR, offset * 8, I2C_MEMADD_SIZE_8BIT, data + (offset * 8), 0x08, 5) == HAL_ERROR) && (errCount < 2)){
+      errCount++;
+    }
+
+    if (errCount == 2){
+      return HAL_ERROR;
+    }
+  }
+
+  return HAL_OK;
 }
 /* USER CODE END 4 */
 
