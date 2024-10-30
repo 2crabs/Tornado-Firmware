@@ -67,9 +67,15 @@ osStaticThreadDef_t updateRGBTaskControlBlock;
 osThreadId buttonTaskHandle;
 uint32_t buttonTaskBuffer[ 128 ];
 osStaticThreadDef_t buttonTaskControlBlock;
+osThreadId EEPROMWriteTaskHandle;
+uint32_t EEPROMWriteTaskBuffer[ 128 ];
+osStaticThreadDef_t EEPROMWriteTaskControlBlock;
 osMessageQId rgbQueueHandle;
 uint8_t rgbQueueBuffer[ 4 * sizeof( RGBState ) ];
 osStaticMessageQDef_t rgbQueueControlBlock;
+osMessageQId EEPROMQueueHandle;
+uint8_t EEPROMQueueBuffer[ 4 * sizeof( uint16_t ) ];
+osStaticMessageQDef_t EEPROMQueueControlBlock;
 osMutexId i2cMutexHandle;
 osStaticMutexDef_t i2cMutexControlBlock;
 osSemaphoreId i2cSyncSemaphoreHandle;
@@ -88,6 +94,7 @@ static void MX_TIM1_Init(void);
 void StartDefaultTask(void const * argument);
 void StartUpdateRGBTask(void const * argument);
 void StartButtonTask(void const * argument);
+void StartEEPROMWriteTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 HAL_StatusTypeDef i2cBlockingRead(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len);
@@ -212,6 +219,10 @@ int main(void)
   osMessageQStaticDef(rgbQueue, 4, RGBState, rgbQueueBuffer, &rgbQueueControlBlock);
   rgbQueueHandle = osMessageCreate(osMessageQ(rgbQueue), NULL);
 
+  /* definition and creation of EEPROMQueue */
+  osMessageQStaticDef(EEPROMQueue, 4, uint16_t, EEPROMQueueBuffer, &EEPROMQueueControlBlock);
+  EEPROMQueueHandle = osMessageCreate(osMessageQ(EEPROMQueue), NULL);
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -228,6 +239,10 @@ int main(void)
   /* definition and creation of buttonTask */
   osThreadStaticDef(buttonTask, StartButtonTask, osPriorityNormal, 0, 128, buttonTaskBuffer, &buttonTaskControlBlock);
   buttonTaskHandle = osThreadCreate(osThread(buttonTask), NULL);
+
+  /* definition and creation of EEPROMWriteTask */
+  osThreadStaticDef(EEPROMWriteTask, StartEEPROMWriteTask, osPriorityLow, 0, 128, EEPROMWriteTaskBuffer, &EEPROMWriteTaskControlBlock);
+  EEPROMWriteTaskHandle = osThreadCreate(osThread(EEPROMWriteTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -830,6 +845,31 @@ void StartButtonTask(void const * argument)
     vTaskDelay(10);
   }
   /* USER CODE END StartButtonTask */
+}
+
+/* USER CODE BEGIN Header_StartEEPROMWriteTask */
+/**
+* @brief Function implementing the EEPROMWriteTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartEEPROMWriteTask */
+void StartEEPROMWriteTask(void const * argument)
+{
+  /* USER CODE BEGIN StartEEPROMWriteTask */
+  /* Infinite loop */
+  uint8_t addr;
+  uint8_t data;
+  uint16_t received;
+
+  for(;;)
+  {
+    xQueueReceive(EEPROMQueueHandle, &received, portMAX_DELAY);
+    addr = (received >> 8);
+    data = received & 0xff;
+    i2cBlockingWrite(&hi2c1, EEPROM_ADDR, addr, &data, 1);
+  }
+  /* USER CODE END StartEEPROMWriteTask */
 }
 
 /**
