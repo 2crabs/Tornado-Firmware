@@ -70,6 +70,9 @@ osStaticThreadDef_t buttonTaskControlBlock;
 osThreadId EEPROMWriteTaskHandle;
 uint32_t EEPROMWriteTaskBuffer[ 128 ];
 osStaticThreadDef_t EEPROMWriteTaskControlBlock;
+osThreadId periodicTaskHandle;
+uint32_t periodicTaskBuffer[ 128 ];
+osStaticThreadDef_t periodicTaskControlBlock;
 osMessageQId rgbQueueHandle;
 uint8_t rgbQueueBuffer[ 4 * sizeof( RGBState ) ];
 osStaticMessageQDef_t rgbQueueControlBlock;
@@ -95,6 +98,7 @@ void StartDefaultTask(void const * argument);
 void StartUpdateRGBTask(void const * argument);
 void StartButtonTask(void const * argument);
 void StartEEPROMWriteTask(void const * argument);
+void StartPeriodicTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 HAL_StatusTypeDef i2cBlockingRead(I2C_HandleTypeDef *hi2c, uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len);
@@ -243,6 +247,10 @@ int main(void)
   /* definition and creation of EEPROMWriteTask */
   osThreadStaticDef(EEPROMWriteTask, StartEEPROMWriteTask, osPriorityLow, 0, 128, EEPROMWriteTaskBuffer, &EEPROMWriteTaskControlBlock);
   EEPROMWriteTaskHandle = osThreadCreate(osThread(EEPROMWriteTask), NULL);
+
+  /* definition and creation of periodicTask */
+  osThreadStaticDef(periodicTask, StartPeriodicTask, osPriorityNormal, 0, 128, periodicTaskBuffer, &periodicTaskControlBlock);
+  periodicTaskHandle = osThreadCreate(osThread(periodicTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -870,6 +878,37 @@ void StartEEPROMWriteTask(void const * argument)
     i2cBlockingWrite(&hi2c1, EEPROM_ADDR, addr, &data, 1);
   }
   /* USER CODE END StartEEPROMWriteTask */
+}
+
+/* USER CODE BEGIN Header_StartPeriodicTask */
+/**
+* @brief Function implementing the periodicTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartPeriodicTask */
+void StartPeriodicTask(void const * argument)
+{
+  /* USER CODE BEGIN StartPeriodicTask */
+  /* Infinite loop */
+
+  FDCAN_TxHeaderTypeDef header;
+  uint8_t data;
+
+  header.BitRateSwitch = FDCAN_BRS_OFF;
+  header.IdType = FDCAN_EXTENDED_ID;
+  header.Identifier = 0xAA;
+  header.DataLength = FDCAN_DLC_BYTES_0;
+  header.FDFormat = FDCAN_CLASSIC_CAN;
+  header.TxFrameType = FDCAN_DATA_FRAME;
+  header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+
+  for(;;)
+  {
+    HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, &data);
+    vTaskDelay(200);
+  }
+  /* USER CODE END StartPeriodicTask */
 }
 
 /**
